@@ -3,6 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <title>페이지 선택</title>
+  <!-- 해시 기반 reset-password 리디렉션 -->
+  <script>
+    (function () {
+      const hash = window.location.hash;            // 예: #/reset-password?access_token=...
+      if (hash && hash.startsWith('#/reset-password')) {
+        // '#/reset-password' 이후의 쿼리(?...)만 추출
+        const query = hash.substring('#/reset-password'.length);
+        // 원하는 페이지로 이동 (GitHub Pages 루트 경로에 맞게 절대/상대 경로 주의)
+        window.location.replace(
+          window.location.origin + window.location.pathname.replace(/\/index\.html$/, '') +
+          '/reset-password.html' + query
+        );
+      }
+    })();
+  </script>
 </head>
 <body>
   <h1>페이지 목록</h1>
