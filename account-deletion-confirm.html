@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Runbickers | 회원탈퇴 확인</title>
+  <style>
+    :root {
+      --bg: #f5f7fb; --card:#fff; --border:#e5e7eb; --text:#111827;
+      --muted:#6b7280; --danger:#ef4444; --success:#16a34a;
+      --radius:14px; --shadow:0 8px 24px rgba(0,0,0,.08);
+    }
+    body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Segoe UI",Roboto,Helvetica,Arial;}
+    main{min-height:100dvh;display:grid;place-items:center;padding:24px;}
+    .card{width:100%;max-width:560px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:28px;}
+    h1{text-align:center;margin:0 0 8px;}
+    p{color:var(--muted);text-align:center;margin:0 0 18px;}
+    .status{padding:14px;border-radius:10px;margin-bottom:16px;text-align:center;}
+    .ok{background:#ecfdf5;border:1px solid #d1fae5;color:#065f46;}
+    .err{background:#fef2f2;border:1px solid #fee2e2;color:#991b1b;}
+    .btn{display:block;width:100%;height:44px;border-radius:10px;border:1px solid var(--border);background:#fff;color:#374151;font-weight:700;text-align:center;line-height:44px;text-decoration:none;}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="card">
+      <h1>Runbickers</h1>
+      <p>회원탈퇴 확인</p>
+
+      <div id="status" class="status">토큰을 확인 중입니다...</div>
+      <a class="btn" href="./">홈으로</a>
+    </div>
+  </main>
+
+  <script>
+    function qs(name) {
+      const p = new URLSearchParams(location.search);
+      return p.get(name) || '';
+    }
+    async function run() {
+      const status = document.getElementById('status');
+      const token = qs('token');
+
+      if (!token) {
+        status.className = 'status err';
+        status.textContent = '유효하지 않은 접근입니다. (토큰 없음)';
+        return;
+      }
+
+      // TODO: Supabase 연동
+      // - Edge Function 예시: confirm-delete
+      //   1) 토큰 검증(미사용/만료확인)
+      //   2) delete_user_account 호출(서버측 service role로)
+      //   3) 토큰 사용 처리
+      //   const res = await fetch('https://<PROJECT>.functions.supabase.co/confirm-delete', {
+      //     method: 'POST',
+      //     headers: { 'Content-Type': 'application/json' },
+      //     body: JSON.stringify({ token }),
+      //   });
+      //   if (res.ok) { ... } else { ... }
+
+      // 데모: 성공 메시지로 표시
+      await new Promise(r => setTimeout(r, 600));
+      status.className = 'status ok';
+      status.textContent = '회원탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.';
+    }
+    run();
+  </script>
+</body>
+</html>
