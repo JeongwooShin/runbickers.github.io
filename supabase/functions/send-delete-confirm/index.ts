@@ -1,5 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 // trigger
+// trigger2
 import { supabaseAnon, supabaseAdmin } from "../_shared/supabaseClients.ts";
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { sendEmail } from "../_shared/email.ts";
