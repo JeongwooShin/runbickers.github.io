@@ -5,8 +5,8 @@ const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')!;
 
-// 발신자: 시크릿 EMAIL_FROM 사용, 없으면 Resend 테스트용 주소
-const EMAIL_FROM = Deno.env.get('EMAIL_FROM') || 'Runbickers <onboarding@resend.dev>';
+// 발신자: 시크릿 EMAIL_FROM 사용, 없으면 Resend 테스트용
+const EMAIL_FROM = Deno.env.get('EMAIL_FROM') || 'onboarding@resend.dev';
 
 const ALLOWED_ORIGIN = 'https://jeongwooshin.github.io';
 const corsHeaders = {
@@ -62,8 +62,8 @@ Deno.serve(async (req) => {
       <p><a href="${confirmUrl}">${confirmUrl}</a></p>
     `;
 
-    let resendStatus = 0;
-    let resendText = '';
+    console.log('EMAIL_FROM =', EMAIL_FROM);
+
     try {
       const emailRes = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -72,21 +72,20 @@ Deno.serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: EMAIL_FROM,
+          from: EMAIL_FROM,                // 반드시 유효한 포맷이어야 함
           to: [email],
           subject: 'Runbickers 회원탈퇴 확인',
           html: emailHtml,
         }),
       });
 
-      resendStatus = emailRes.status;
+      const text = await emailRes.text().catch(() => '');
       if (!emailRes.ok) {
-        resendText = await emailRes.text().catch(() => '');
-        console.error('Email send failed:', resendStatus, resendText);
+        console.error('Email send failed:', emailRes.status, text);
         return json(502, {
           error: '이메일 전송에 실패했습니다.',
-          resend_status: resendStatus,
-          resend_error: resendText.slice(0, 800),
+          resend_status: emailRes.status,
+          resend_error: text.slice(0, 1000),
         });
       }
     } catch (e) {
