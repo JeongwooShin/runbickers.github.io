@@ -5,6 +5,9 @@ const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')!;
 
+// 발신자: 시크릿 EMAIL_FROM 사용, 없으면 Resend 테스트용 주소
+const EMAIL_FROM = Deno.env.get('EMAIL_FROM') || 'Runbickers <onboarding@resend.dev>';
+
 const ALLOWED_ORIGIN = 'https://jeongwooshin.github.io';
 const corsHeaders = {
   'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
@@ -37,7 +40,7 @@ Deno.serve(async (req) => {
     // 2) 토큰 발급
     const token = crypto.randomUUID();
 
-    // 3) 토큰 저장 (IP는 일단 저장 안 함)
+    // 3) 토큰 저장
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const row = {
       user_id: userId,
@@ -45,7 +48,6 @@ Deno.serve(async (req) => {
       token,
       reason: reason || null,
       nickname: nickname || null,
-      // ip/client_ip 컬럼이 있더라도 일단 넣지 않습니다.
     };
     const { error: insertErr } = await admin.from('account_deletion_tokens').insert(row);
     if (insertErr) {
@@ -60,24 +62,36 @@ Deno.serve(async (req) => {
       <p><a href="${confirmUrl}">${confirmUrl}</a></p>
     `;
 
-    const emailRes = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'Runbickers <noreply@runbickers.app>',
-        to: [email],
-        subject: 'Runbickers 회원탈퇴 확인',
-        html: emailHtml,
-      }),
-    });
+    let resendStatus = 0;
+    let resendText = '';
+    try {
+      const emailRes = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: EMAIL_FROM,
+          to: [email],
+          subject: 'Runbickers 회원탈퇴 확인',
+          html: emailHtml,
+        }),
+      });
 
-    if (!emailRes.ok) {
-      const t = await emailRes.text().catch(() => '');
-      console.error('Email send failed:', t);
-      return json(502, { error: '이메일 전송에 실패했습니다.' });
+      resendStatus = emailRes.status;
+      if (!emailRes.ok) {
+        resendText = await emailRes.text().catch(() => '');
+        console.error('Email send failed:', resendStatus, resendText);
+        return json(502, {
+          error: '이메일 전송에 실패했습니다.',
+          resend_status: resendStatus,
+          resend_error: resendText.slice(0, 800),
+        });
+      }
+    } catch (e) {
+      console.error('Email fetch threw:', e);
+      return json(502, { error: '이메일 전송 중 네트워크 오류', detail: String(e) });
     }
 
     return json(200, { ok: true });
