@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>가입 완료2</title>
+  <title>가입 완료</title>
   <style>
     :root { color-scheme: light dark; }
     body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji"; margin:24px; line-height:1.5; }
@@ -40,18 +40,23 @@
     const qs = new URLSearchParams(location.search);
     const hs = new URLSearchParams(location.hash.replace(/^#/, ''));
 
-    // JWT를 Base64URL decoding해서 payload 추출(최후의 수단)
-    function readReferralFromJWT() {
+    // Base64URL → string (padding 보정)
+    function b64urlToStr(b64url) {
       try {
-        const at = hs.get('access_token');
-        if (!at) return '';
-        const parts = at.split('.');
-        if (parts.length < 2) return '';
-        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-        const json = JSON.parse(atob(b64));
-        const rc = json?.user_metadata?.referralCode || json?.user_metadata?.referralcode || '';
-        return (rc || '').trim();
+        let s = b64url.replace(/-/g, '+').replace(/_/g, '/');
+        const pad = s.length % 4;
+        if (pad) s += '='.repeat(4 - pad);
+        return atob(s);
       } catch { return ''; }
+    }
+    // JWT payload 파싱
+    function parseJwtPayload(token) {
+      try {
+        const parts = token.split('.');
+        if (parts.length < 2) return null;
+        const json = b64urlToStr(parts[1]);
+        return json ? JSON.parse(json) : null;
+      } catch { return null; }
     }
 
     function readReferralFromUrlOrLS() {
@@ -63,19 +68,27 @@
       return rc;
     }
 
+    function readReferralFromJWT() {
+      const at = hs.get('access_token');
+      if (!at) return '';
+      const payload = parseJwtPayload(at);
+      const rc = payload?.user_metadata?.referralCode || payload?.user_metadata?.referralcode || '';
+      return (rc || '').trim();
+    }
+
     async function ensureSession() {
       // 1) 기존 세션 확인
       let { data: { session } } = await supabase.auth.getSession();
       if (session) return session;
 
-      // 2) code로 교환
+      // 2) code → session 교환
       const code = qs.get('code') || hs.get('code');
       if (code) {
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
         if (!error && data?.session) return data.session;
       }
 
-      // 3) hash 토큰으로 세션 세팅
+      // 3) hash 토큰으로 세션 설정
       const at = hs.get('access_token');
       const rt = hs.get('refresh_token');
       if (at && rt) {
@@ -88,47 +101,53 @@
       return session ?? null;
     }
 
-    async function detectReferralCode(session) {
+    async function detectReferralCode() {
       // 1) URL/로컬스토리지
       let rc = readReferralFromUrlOrLS();
       if (rc) return rc;
 
-      // 2) 세션이 있으면 유저 메타데이터에서
-      try {
-        const { data: userData } = await supabase.auth.getUser();
-        const rcMeta = (userData?.user?.user_metadata?.referralCode || '').trim();
-        if (rcMeta) return rcMeta;
-      } catch {}
-
-      // 3) access_token(JWT) payload에서 추출
+      // 2) JWT payload(해시)에서 추출 — 세션 세팅 전에도 동작
       rc = readReferralFromJWT();
-      return rc;
+      if (rc) return rc;
+
+      // 3) 세션 설정 후 user_metadata에서 추출
+      const session = await ensureSession();
+      if (session) {
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          const rcMeta = (userData?.user?.user_metadata?.referralCode || '').trim();
+          if (rcMeta) return rcMeta;
+        } catch {}
+      }
+      return '';
     }
 
     async function applyReferralIfNeeded() {
       log('가입 인증이 완료되었습니다.', 'ok');
       log('필요 시 추천 코드 적용을 보정합니다...', '');
 
-      const session = await ensureSession();
+      const session = await ensureSession(); // 세션부터 확보
       if (!session) {
         log('세션이 없습니다. 로그인 후 다시 시도해주세요.', 'err');
         return;
       }
 
       // 인증된 사용자 이메일 로그
-      const { data: me } = await supabase.auth.getUser();
-      const email = me?.user?.email || '(unknown)';
-      log(`인증된 사용자: ${email}`, 'ok');
+      try {
+        const { data: me } = await supabase.auth.getUser();
+        const email = me?.user?.email || '(unknown)';
+        log(`인증된 사용자: ${email}`, 'ok');
+      } catch {}
 
       // 추천 코드 감지
-      const rc = await detectReferralCode(session);
+      const rc = await detectReferralCode();
       if (!rc) {
         log('추천 코드가 감지되지 않았습니다(rc/ref/referralCode / user_metadata).', 'warn');
         return;
       }
       log(`감지된 추천 코드: ${rc}`, 'ok');
 
-      // 최근 트랜잭션이 있으면 중복호출 스킵(선택)
+      // 과도한 중복 호출 회피(선택)
       try {
         const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const { data: tx } = await supabase
@@ -142,26 +161,29 @@
         }
       } catch {}
 
-      // Edge Function 호출
+      // Edge Function 호출 — fetch로 상세 에러 표시
       log('추천 보상 처리 시도 중...', '');
       try {
-        const { data, error } = await supabase.functions.invoke('process-referral', {
-          body: { referralCode: rc }
+        const FUNCTIONS_BASE = SUPABASE_URL.replace('.supabase.co', '.functions.supabase.co');
+        const resp = await fetch(`${FUNCTIONS_BASE}/process-referral`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ referralCode: rc }),
         });
 
-        if (error) {
-          const msg = (error?.message || '').toLowerCase();
-          if (msg.includes('already')) {
-            log('이미 추천이 적용된 사용자입니다(중복 보상 없음).', 'warn');
-          } else if (msg.includes('invalid referral')) {
-            log('추천 코드가 유효하지 않습니다.', 'err');
-          } else if (msg.includes('unauthorized')) {
-            log('인증이 필요합니다. 다시 로그인 후 시도해주세요.', 'err');
-          } else {
-            log(`추천 처리 실패: ${error.message}`, 'err');
-          }
+        if (!resp.ok) {
+          let errText = resp.statusText;
+          try {
+            const j = await resp.json();
+            if (j?.error) errText = j.error;
+          } catch {}
+          log(`추천 처리 실패: ${errText}`, 'err');
           return;
         }
+        const data = await resp.json().catch(() => ({}));
         if (data?.success) {
           log(`추천 보상이 적용되었습니다. 추천인(+${data.referrerReward}), 피추천인(+${data.refereeReward})`, 'ok');
           localStorage.removeItem('pendingReferralCode');
@@ -193,7 +215,7 @@
     <div class="row muted">
       참고:
       <ul>
-        <li>추천 코드는 URL(rc/ref/referralCode) 또는 브라우저 저장소/사용자 메타데이터에 있을 경우 자동 처리합니다.</li>
+        <li>추천 코드는 URL(rc/ref/referralCode), 브라우저 저장소, 사용자 메타데이터, JWT payload에서 감지합니다.</li>
         <li>이미 보상이 적용된 이메일(글로벌 1회 정책)은 추가 지급되지 않습니다.</li>
       </ul>
     </div>
