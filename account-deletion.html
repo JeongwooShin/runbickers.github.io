@@ -184,6 +184,7 @@
 
     // 본인 프로젝트 ref로 교체하세요 (예: https://abcd1234.functions.supabase.co)
     const FUNCTIONS_BASE = 'https://sragibpyggwxbghyfuzq.functions.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNyYWdpYnB5Z2d3eGJnaHlmdXpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwMTYwMTYsImV4cCI6MjA2ODU5MjAxNn0.oOKRCaMs42f-LD8DclL_tXimCIY5OOKWuSHerIOj8-0'; // 공개키(anon)는 브라우저 노출 OK
 
     function valid() {
       return form.checkValidity()
@@ -202,50 +203,56 @@
       togglePw.textContent = pw.type === 'password' ? '보기' : '숨기기';
     });
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (!valid()) return;
+   form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!valid()) return;
 
-      submitBtn.disabled = true;
-      const origText = submitBtn.textContent;
-      submitBtn.textContent = '처리 중...';
+    submitBtn.disabled = true;
+    const origText = submitBtn.textContent;
+    submitBtn.textContent = '처리 중...';
 
-      const payload = {
-        email: email.value.trim(),
-        password: pw.value,
-        nickname: document.getElementById('nickname').value.trim(),
-        reason: document.getElementById('reason').value,
-      };
+    const payload = {
+      email: email.value.trim(),
+      password: pw.value,
+      nickname: document.getElementById('nickname').value.trim(),
+      reason: document.getElementById('reason').value,
+    };
 
-      try {
-        const res = await fetch(`${FUNCTIONS_BASE}/send-delete-confirm`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+    try {
+      const res = await fetch(`${FUNCTIONS_BASE}/send-delete-confirm`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify(payload),
+      });
 
-        if (!res.ok) {
-          let msg = res.statusText;
-          try {
-            const data = await res.json();
-            if (data?.error) msg = data.error;
-          } catch (_) {}
-          alert('요청 처리에 실패했습니다.\n' + msg);
-          submitBtn.disabled = false;
-          submitBtn.textContent = origText;
-          return;
-        }
+      const bodyText = await res.text();
+      console.log('Response:', res.status, bodyText);
 
-        // 성공 시 확인 안내 화면으로 전환
-        document.getElementById('deleteForm').classList.add('hidden');
-        document.getElementById('result').classList.remove('hidden');
-      } catch (err) {
-        console.error(err);
-        alert('네트워크 오류가 발생했습니다.');
+      if (!res.ok) {
+        let msg = bodyText;
+        try {
+          const data = JSON.parse(bodyText);
+          if (data?.error) msg = data.error;
+        } catch (_) {}
+        alert('요청 처리에 실패했습니다.\n' + msg);
         submitBtn.disabled = false;
         submitBtn.textContent = origText;
+        return;
       }
-    });
-  </script>
+
+      document.getElementById('deleteForm').classList.add('hidden');
+      document.getElementById('result').classList.remove('hidden');
+    } catch (err) {
+      console.error('Fetch error:', err);
+      alert('네트워크 오류가 발생했습니다.');
+      submitBtn.disabled = false;
+      submitBtn.textContent = origText;
+    }
+  });
+</script>
 </body>
 </html>
