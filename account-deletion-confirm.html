@@ -5,66 +5,62 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Runbickers | 회원탈퇴 확인</title>
   <style>
-    :root {
-      --bg: #f5f7fb; --card:#fff; --border:#e5e7eb; --text:#111827;
-      --muted:#6b7280; --danger:#ef4444; --success:#16a34a;
-      --radius:14px; --shadow:0 8px 24px rgba(0,0,0,.08);
-    }
-    body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Segoe UI",Roboto,Helvetica,Arial;}
-    main{min-height:100dvh;display:grid;place-items:center;padding:24px;}
-    .card{width:100%;max-width:560px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:28px;}
-    h1{text-align:center;margin:0 0 8px;}
-    p{color:var(--muted);text-align:center;margin:0 0 18px;}
-    .status{padding:14px;border-radius:10px;margin-bottom:16px;text-align:center;}
-    .ok{background:#ecfdf5;border:1px solid #d1fae5;color:#065f46;}
-    .err{background:#fef2f2;border:1px solid #fee2e2;color:#991b1b;}
-    .btn{display:block;width:100%;height:44px;border-radius:10px;border:1px solid var(--border);background:#fff;color:#374151;font-weight:700;text-align:center;line-height:44px;text-decoration:none;}
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans KR, Arial; margin: 0; background: #f5f7fb; }
+    main { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
+    .card { width: 100%; max-width: 520px; background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 28px; box-shadow: 0 8px 24px rgba(0,0,0,.08); }
+    h1 { margin: 0 0 6px; text-align: center; font-size: 26px; font-weight: 800; }
+    p { text-align: center; color: #374151; }
+    .ok { color: #0a7a28; }
+    .err { color: #b00020; white-space: pre-wrap; }
+    .actions { display: grid; gap: 8px; margin-top: 12px; }
+    a.btn { display: inline-block; text-align: center; padding: 10px 12px; border-radius: 10px; border: 1px solid #e5e7eb; color: #111827; text-decoration: none; }
   </style>
 </head>
 <body>
   <main>
     <div class="card">
       <h1>Runbickers</h1>
-      <p>회원탈퇴 확인</p>
-
-      <div id="status" class="status">토큰을 확인 중입니다...</div>
-      <a class="btn" href="./">홈으로</a>
+      <p id="state">처리 중...</p>
+      <div class="actions" style="display:none" id="actions">
+        <a class="btn" href="./">홈으로</a>
+      </div>
     </div>
   </main>
-
   <script>
-    function qs(name) {
-      const p = new URLSearchParams(location.search);
-      return p.get(name) || '';
-    }
-    async function run() {
-      const status = document.getElementById('status');
-      const token = qs('token');
+    const FUNCTIONS_BASE = 'https://sragibpyggwxbghyfuzq.functions.supabase.co';
+    const qs = new URLSearchParams(location.search);
+    const token = qs.get('token') || '';
+    const state = document.getElementById('state');
+    const actions = document.getElementById('actions');
 
+    (async () => {
       if (!token) {
-        status.className = 'status err';
-        status.textContent = '유효하지 않은 접근입니다. (토큰 없음)';
+        state.className = 'err';
+        state.textContent = '잘못된 요청입니다. (토큰이 없습니다)';
+        actions.style.display = 'grid';
         return;
       }
-
-      // TODO: Supabase 연동
-      // - Edge Function 예시: confirm-delete
-      //   1) 토큰 검증(미사용/만료확인)
-      //   2) delete_user_account 호출(서버측 service role로)
-      //   3) 토큰 사용 처리
-      //   const res = await fetch('https://<PROJECT>.functions.supabase.co/confirm-delete', {
-      //     method: 'POST',
-      //     headers: { 'Content-Type': 'application/json' },
-      //     body: JSON.stringify({ token }),
-      //   });
-      //   if (res.ok) { ... } else { ... }
-
-      // 데모: 성공 메시지로 표시
-      await new Promise(r => setTimeout(r, 600));
-      status.className = 'status ok';
-      status.textContent = '회원탈퇴가 완료되었습니다. 이용해 주셔서 감사합니다.';
-    }
-    run();
+      try {
+        const res = await fetch(`${FUNCTIONS_BASE}/confirm-delete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) {
+          state.className = 'ok';
+          state.textContent = '계정이 삭제되었습니다. 앱에서 로그아웃 후 재실행해 주세요.';
+        } else {
+          state.className = 'err';
+          state.textContent = body?.error || '삭제에 실패했습니다.';
+        }
+      } catch (e) {
+        state.className = 'err';
+        state.textContent = '네트워크 오류가 발생했습니다.';
+      } finally {
+        actions.style.display = 'grid';
+      }
+    })();
   </script>
 </body>
 </html>
