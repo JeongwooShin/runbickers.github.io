@@ -28,6 +28,9 @@
   </main>
   <script>
     const FUNCTIONS_BASE = 'https://sragibpyggwxbghyfuzq.functions.supabase.co';
+    // Project Settings > API > anon public 키로 교체
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNyYWdpYnB5Z2d3eGJnaHlmdXpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwMTYwMTYsImV4cCI6MjA2ODU5MjAxNn0.oOKRCaMs42f-LD8DclL_tXimCIY5OOKWuSHerIOj8-0';
+
     const qs = new URLSearchParams(location.search);
     const token = qs.get('token') || '';
     const state = document.getElementById('state');
@@ -43,7 +46,11 @@
       try {
         const res = await fetch(`${FUNCTIONS_BASE}/confirm-delete`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          },
           body: JSON.stringify({ token }),
         });
         const body = await res.json().catch(() => ({}));
@@ -52,7 +59,7 @@
           state.textContent = '계정이 삭제되었습니다. 앱에서 로그아웃 후 재실행해 주세요.';
         } else {
           state.className = 'err';
-          state.textContent = body?.error || '삭제에 실패했습니다.';
+          state.textContent = body?.error || `삭제 실패 (status=${res.status})`;
         }
       } catch (e) {
         state.className = 'err';
