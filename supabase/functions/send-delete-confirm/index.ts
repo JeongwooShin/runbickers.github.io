@@ -5,10 +5,11 @@ const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')!;
 
-// 운영 From: 반드시 Verified된 도메인의 주소여야 함
-const EMAIL_FROM = Deno.env.get('EMAIL_FROM') || 'Runbickers <noreply@mail.runbickers.com>';
+// From: 시크릿에서 읽고, 앞뒤 따옴표/공백 제거
+const RAW_EMAIL_FROM = Deno.env.get('EMAIL_FROM') ?? 'noreply@mail.runbickers.com';
+const EMAIL_FROM = RAW_EMAIL_FROM.trim().replace(/^['"]|['"]$/g, '');
 
-// 여러 Origin 허용(시크릿 있으면 그것을 우선 사용)
+// 여러 Origin 허용(시크릿: CORS_ALLOWED_ORIGINS에 쉼표로 넣어 관리 가능)
 const ALLOWED_ORIGINS = (Deno.env.get('CORS_ALLOWED_ORIGINS') ||
   'https://jeongwooshin.github.io,https://btcmobick.runbickers.com')
   .split(',')
@@ -31,13 +32,25 @@ function json(req: Request, status: number, body: unknown) {
   });
 }
 
+// From 포맷 검증
+const emailOnly = /^[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+$/;
+const nameAngle = /^.{1,64}\s*<[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/;
+function isValidFrom(v: string) { return emailOnly.test(v) || nameAngle.test(v); }
+
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders(req.headers.get('origin')) });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(req.headers.get('origin')) });
   if (req.method !== 'POST') return json(req, 405, { error: 'Method Not Allowed' });
 
   try {
+    if (!isValidFrom(EMAIL_FROM)) {
+      console.error('Invalid EMAIL_FROM in env:', JSON.stringify(EMAIL_FROM));
+      return json(req, 500, {
+        error: '서버 설정 오류: EMAIL_FROM 포맷이 잘못되었습니다.',
+        detail: 'EMAIL_FROM는 email@example.com 또는 Name <email@example.com> 형식이어야 합니다.',
+        email_from: EMAIL_FROM,
+      });
+    }
+
     const { email, password, nickname, reason } = await req.json();
     if (!email || !password) return json(req, 400, { error: 'email/password is required' });
 
