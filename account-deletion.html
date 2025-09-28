@@ -3,153 +3,254 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Runbickers | 계정 삭제 요청</title>
+  <title>Runbickers | 회원탈퇴5</title>
+  <meta name="description" content="Runbickers 계정 회원탈퇴 페이지" />
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans KR, Arial, sans-serif; line-height: 1.5; padding: 16px; }
-    .card { max-width: 520px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
-    label { display: block; margin: 10px 0 4px; }
-    input, textarea, select, button { width: 100%; padding: 10px; font-size: 14px; }
-    button { margin-top: 14px; cursor: pointer; }
-    .muted { color: #666; font-size: 12px; }
-    .ok { color: #0a7a28; }
-    .err { color: #b00020; white-space: pre-wrap; }
-    .note { background: #f7f7f7; padding: 10px; border-radius: 6px; font-size: 13px; }
-    .row { display: flex; gap: 8px; }
-    .row > * { flex: 1; }
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --primary: #22c55e;
+      --primary-600: #16a34a;
+      --danger: #ef4444;
+      --danger-600: #dc2626;
+      --shadow: 0 8px 24px rgba(0,0,0,0.08);
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      background: var(--bg);
+      color: var(--text);
+    }
+    main { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
+    .card {
+      width: 100%;
+      max-width: 540px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 28px;
+    }
+    h1 {
+      font-size: 28px;
+      margin: 0 0 6px;
+      text-align: center;
+      font-weight: 800;
+    }
+    .subtitle {
+      margin: 0 0 18px;
+      color: var(--muted);
+      text-align: center;
+    }
+    form .field { margin-bottom: 14px; }
+    label { display: block; font-weight: 700; margin-bottom: 8px; }
+    input[type="text"], input[type="email"], input[type="password"], select {
+      width: 100%;
+      height: 44px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-size: 15px;
+    }
+    .pw-wrap { position: relative; }
+    .pw-toggle {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      border: 0;
+      background: none;
+      font-size: 13px;
+      color: #374151;
+      cursor: pointer;
+      padding: 6px 8px;
+    }
+    .checkbox { display: flex; gap: 10px; align-items: flex-start; line-height: 1.4; }
+    .checkbox input { transform: translateY(3px); }
+    .notice {
+      font-size: 13px;
+      color: #b91c1c;
+      background: #fef2f2;
+      border: 1px solid #fee2e2;
+      padding: 10px 12px;
+      border-radius: 10px;
+      margin: 8px 0 14px;
+    }
+    .actions { display: grid; gap: 8px; margin-top: 8px; }
+    .btn {
+      height: 44px;
+      border-radius: 10px;
+      border: 0;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover { background: var(--danger-600); }
+    .btn-ghost { background: transparent; color: #374151; border: 1px solid var(--border); }
+    .help { text-align: center; color: var(--muted); font-size: 13px; margin-top: 8px; }
+    .help a { color: #047857; text-decoration: none; }
+    .hidden { display: none; }
+    .center { text-align: center; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h2>계정 삭제 요청</h2>
-    <p class="note">
-      - 운영용으로 메일을 보내려면 Resend에서 도메인(예: mail.runbickers.com)을 검증해야 합니다.<br />
-      - 도메인 미검증 상태에서는 소유자 이메일로만 발송이 허용됩니다.
-    </p>
+  <main>
+    <div class="card">
+      <h1>Runbickers</h1>
+      <p class="subtitle">회원탈퇴</p>
 
-    <form id="deleteForm" novalidate>
-      <label for="email">이메일</label>
-      <input id="email" name="email" type="email" required placeholder="email@example.com" />
-
-      <label for="password">비밀번호</label>
-      <input id="password" name="password" type="password" required />
-
-      <div class="row">
-        <div>
-          <label for="nickname">닉네임(선택)</label>
-          <input id="nickname" name="nickname" type="text" placeholder="선택 입력" />
+      <form id="deleteForm" novalidate>
+        <div class="field">
+          <label for="nickname">닉네임</label>
+          <input id="nickname" name="nickname" type="text" placeholder="닉네임을 입력하세요" autocomplete="nickname" />
         </div>
-        <div>
-          <label for="reason">사유(선택)</label>
+
+        <div class="field">
+          <label for="email">이메일</label>
+          <input id="email" name="email" type="email" placeholder="이메일을 입력하세요" autocomplete="email" required />
+        </div>
+
+        <div class="field">
+          <label for="password">비밀번호</label>
+          <div class="pw-wrap">
+            <input id="password" name="password" type="password" minlength="8" placeholder="비밀번호를 입력하세요 (최소 8자)" autocomplete="current-password" required />
+            <button type="button" id="togglePw" class="pw-toggle" aria-label="비밀번호 보기 전환">보기</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="passwordConfirm">비밀번호 확인</label>
+          <input id="passwordConfirm" name="passwordConfirm" type="password" minlength="8" placeholder="비밀번호를 다시 입력하세요" required />
+        </div>
+
+        <div class="field">
+          <label for="reason">탈퇴 사유 (선택)</label>
           <select id="reason" name="reason">
             <option value="">선택 안 함</option>
-            <option>앱 사용 빈도 낮음</option>
-            <option>원하는 기능 부족</option>
-            <option>개인정보 우려</option>
-            <option>기타</option>
+            <option value="rarely_use">사용 빈도 낮음</option>
+            <option value="inconvenience">기능/사용성 불편</option>
+            <option value="privacy">개인정보 우려</option>
+            <option value="rejoin_later">재가입 예정</option>
+            <option value="other">기타</option>
           </select>
         </div>
-      </div>
 
-      <button id="submitBtn" type="submit">회원탈퇴 확인 이메일 보내기</button>
-      <div id="status" class="muted" style="margin-top:8px;"></div>
-      <div id="msg" style="margin-top:8px;"></div>
-    </form>
-  </div>
+        <label class="checkbox">
+          <input id="confirm" type="checkbox" required />
+          <span>
+            모든 데이터(프로필, 기록, 리더보드/리워드 등)가 영구 삭제됨을 이해하고 동의합니다.<br />
+            이 작업은 되돌릴 수 없습니다.
+          </span>
+        </label>
+
+        <div class="notice">
+          보안을 위해 이메일 일치 확인과 비밀번호 재인증 후, 확인 이메일을 발송합니다.
+          이메일의 링크를 클릭해야 최종 탈퇴가 완료됩니다(24시간 내 미확인 시 자동 취소).
+        </div>
+
+        <div class="actions">
+          <button id="submitBtn" class="btn btn-danger" type="submit" disabled>회원탈퇴</button>
+        </div>
+
+        <p class="help">문의: <a href="mailto:runbickers@gmail.com">runbickers@gmail.com</a></p>
+      </form>
+
+      <div id="result" class="hidden" aria-live="polite">
+        <h2 class="center">확인 이메일을 보냈습니다</h2>
+        <p class="center">받은 편지함에서 링크를 클릭하면 탈퇴가 완료됩니다. (유효기간 24시간)</p>
+        <div class="actions">
+          <a class="btn btn-ghost center" href="./">홈으로</a>
+        </div>
+      </div>
+    </div>
+  </main>
 
   <script>
-    // 환경값
-    const FUNCTION_URL = 'https://sragibpyggwxbghyfuzq.functions.supabase.co/send-delete-confirm';
-    // TODO: 실제 anon 키로 바꾸세요 (Project Settings → API → anon public)
-    const ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
-
     const form = document.getElementById('deleteForm');
     const submitBtn = document.getElementById('submitBtn');
-    const statusEl = document.getElementById('status');
-    const msgEl = document.getElementById('msg');
+    const confirmCb = document.getElementById('confirm');
+    const email = document.getElementById('email');
+    const pw = document.getElementById('password');
+    const pw2 = document.getElementById('passwordConfirm');
+    const togglePw = document.getElementById('togglePw');
 
-    let submitting = false;
+    // 본인 프로젝트 ref/키로 교체하세요
+    const FUNCTIONS_BASE = 'https://sragibpyggwxbghyfuzq.functions.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNyYWdpYnB5Z2d3eGJnaHlmdXpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwMTYwMTYsImV4cCI6MjA2ODU5MjAxNn0.oOKRCaMs42f-LD8DclL_tXimCIY5OOKWuSHerIOj8-0'; // 공개키(anon)는 브라우저 노출 OK
+
+    function valid() {
+      return form.checkValidity()
+        && pw.value.length >= 8
+        && pw.value === pw2.value
+        && confirmCb.checked;
+    }
+    function updateSubmitState() {
+      submitBtn.disabled = !valid();
+    }
+    ['input','change'].forEach(ev => form.addEventListener(ev, updateSubmitState));
+    updateSubmitState();
+
+    togglePw.addEventListener('click', () => {
+      pw.type = pw.type === 'password' ? 'text' : 'password';
+      togglePw.textContent = pw.type === 'password' ? '보기' : '숨기기';
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (submitting) return;
+      if (!valid()) return;
 
-      const email = document.getElementById('email').value.trim();
-      const password = document.getElementById('password').value;
-      const nickname = document.getElementById('nickname').value.trim();
-      const reason = document.getElementById('reason').value;
-
-      if (!email || !password) {
-        msgEl.className = 'err';
-        msgEl.textContent = '이메일과 비밀번호를 입력해 주세요.';
-        return;
-      }
-
-      submitting = true;
       submitBtn.disabled = true;
-      statusEl.textContent = '처리 중...';
-      msgEl.textContent = '';
-      msgEl.className = '';
+      const origText = submitBtn.textContent;
+      submitBtn.textContent = '처리 중...';
+
+      const payload = {
+        email: email.value.trim(),
+        password: pw.value,
+        nickname: document.getElementById('nickname').value.trim(),
+        reason: document.getElementById('reason').value,
+      };
 
       try {
-        const res = await fetch(FUNCTION_URL, {
+        const res = await fetch(`${FUNCTIONS_BASE}/send-delete-confirm`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'apikey': ANON_KEY,
-            'Authorization': `Bearer ${ANON_KEY}`,
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
           },
-          body: JSON.stringify({ email, password, nickname, reason }),
+          body: JSON.stringify(payload),
         });
 
-        let body = {};
-        try { body = await res.json(); } catch (_) {}
+        const bodyText = await res.text();
+        console.log('Response:', res.status, bodyText);
 
-        console.log('Response:', res.status, body);
-
-        if (res.ok) {
-          statusEl.textContent = '';
-          msgEl.className = 'ok';
-          msgEl.textContent = '확인 이메일을 보냈습니다. 메일함(스팸함 포함)을 확인해 주세요.';
-          if (body.confirmUrl) {
-            // 개발/테스트 모드에서만 내려올 수 있는 값
-            const a = document.createElement('a');
-            a.href = body.confirmUrl;
-            a.textContent = '개발 모드: 바로 확인 링크 열기';
-            a.target = '_blank';
-            msgEl.appendChild(document.createElement('br'));
-            msgEl.appendChild(a);
-          }
+        if (!res.ok) {
+          let msg = bodyText;
+          try {
+            const data = JSON.parse(bodyText);
+            if (data?.error) msg = data.error;
+          } catch (_) {}
+          alert('요청 처리에 실패했습니다.\n' + msg);
+          submitBtn.disabled = false;
+          submitBtn.textContent = origText;
           return;
         }
 
-        // 에러 처리
-        statusEl.textContent = '';
-        msgEl.className = 'err';
-
-        // Resend 테스트 제한/미검증 도메인
-        if (res.status === 502 && body?.resend_status) {
-          msgEl.textContent =
-            '이메일 전송에 실패했습니다. ' +
-            (body.resend_status === 403
-              ? 'Resend 테스트 제한 또는 도메인 미검증 상태입니다. Domains에서 도메인을 검증하세요.'
-              : `Resend 상태=${body.resend_status}. 상세: ${body.resend_error || ''}`);
-          return;
-        }
-
-        if (res.status === 401) {
-          msgEl.textContent = '이메일 또는 비밀번호가 올바르지 않습니다.';
-          return;
-        }
-
-        msgEl.textContent = `요청 실패 (status=${res.status}). ${body?.error || ''}`;
+        document.getElementById('deleteForm').classList.add('hidden');
+        document.getElementById('result').classList.remove('hidden');
       } catch (err) {
-        statusEl.textContent = '';
-        msgEl.className = 'err';
-        msgEl.textContent = '네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.';
-        console.error(err);
-      } finally {
-        submitting = false;
+        console.error('Fetch error:', err);
+        alert('네트워크 오류가 발생했습니다.');
         submitBtn.disabled = false;
+        submitBtn.textContent = origText;
       }
     });
   </script>
