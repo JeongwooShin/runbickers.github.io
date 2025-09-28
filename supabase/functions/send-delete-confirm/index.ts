@@ -1,90 +1,106 @@
-// deno-lint-ignore-file no-explicit-any
-// trigger
-// trigger2
-// trigger3
-import { supabaseAnon, supabaseAdmin } from "../_shared/supabaseClients.ts";
-import { handleOptions, jsonResponse } from "../_shared/cors.ts";
-import { sendEmail } from "../_shared/email.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const SITE_BASE_URL =
-  (Deno.env.get("PUBLIC_SITE_BASE_URL") || "https://jeongwooshin.github.io/runbickers.github.io").replace(/\/$/, "");
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')!;
 
-interface Payload {
-  email: string;
-  password: string;
-  nickname?: string;
-  reason?: string;
+const ALLOWED_ORIGIN = 'https://jeongwooshin.github.io';
+const corsHeaders = {
+  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+function badRequest(msg: string) {
+  return new Response(JSON.stringify({ error: msg }), {
+    status: 400,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  });
+}
+function serverError(msg: string) {
+  return new Response(JSON.stringify({ error: msg }), {
+    status: 500,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  });
+}
+
+// 단일 IP만 추출하는 헬퍼
+function getClientIp(req: Request): string | null {
+  const cf = req.headers.get('cf-connecting-ip')?.trim();
+  const real = req.headers.get('x-real-ip')?.trim();
+  const xff = req.headers.get('x-forwarded-for')?.trim(); // "a, b, c"
+  const firstFromXff = xff ? xff.split(',')[0]?.trim() : undefined;
+
+  // 우선순위: cf-connecting-ip > x-real-ip > 첫 번째 XFF
+  const ip = cf || real || firstFromXff || '';
+  return ip || null;
 }
 
 Deno.serve(async (req) => {
-  const preflight = handleOptions(req);
-  if (preflight) return preflight;
-
-  if (req.method !== "POST") {
-    return jsonResponse(req, { error: "Method Not Allowed" }, 405);
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405, headers: corsHeaders });
 
   try {
-    const body = (await req.json()) as Payload;
-    const email = (body.email || "").trim().toLowerCase();
-    const password = body.password || "";
-    const reason = body.reason || "";
+    const { email, password, nickname, reason } = await req.json();
+    if (!email || !password) return badRequest('email/password is required');
 
-    if (!email || !password) {
-      return jsonResponse(req, { error: "이메일과 비밀번호는 필수입니다." }, 400);
-    }
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInErr || !signInData?.user) return new Response(JSON.stringify({ error: 'Invalid credentials' }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 
-    // 1) 비밀번호 재인증 (anon client로 안전하게 검증)
-    const { data: signinData, error: signinError } = await supabaseAnon.auth.signInWithPassword({ email, password });
-    if (signinError || !signinData?.user) {
-      return jsonResponse(req, { error: "인증에 실패했습니다. 이메일/비밀번호를 확인해주세요." }, 401);
-    }
-    const user = signinData.user;
-
-    // 2) 토큰 생성 및 저장 (service role)
+    const userId = signInData.user.id;
     const token = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h
-    const ip = req.headers.get("x-forwarded-for") ?? "";
-    const ua = req.headers.get("user-agent") ?? "";
+    const clientIp = getClientIp(req);
 
-    const { error: insertErr } = await supabaseAdmin.from("delete_tokens").insert({
-      user_id: user.id,
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    // 토큰 저장 — ip 컬럼명에 맞춰 한 줄만 사용
+    const row: Record<string, unknown> = {
+      user_id: userId,
       email,
       token,
-      reason,
-      ip,
-      user_agent: ua,
-      expires_at: expiresAt,
-    });
-    if (insertErr) {
-      console.error(insertErr);
-      return jsonResponse(req, { error: "토큰 저장에 실패했습니다." }, 500);
+      reason: reason || null,
+      nickname: nickname || null,
+    };
+    if (clientIp) {
+      // 컬럼명이 ip라면:
+      // row.ip = clientIp;
+      // 컬럼명이 client_ip라면:
+      row.client_ip = clientIp;
     }
 
-    // 3) 확인 이메일 발송
-    const confirmLink = `${SITE_BASE_URL}/account-deletion-confirm.html?token=${token}`;
-    const subject = "Runbickers 회원탈퇴 확인";
-    const html = `
-      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Apple SD Gothic Neo,Noto Sans KR,Helvetica,Arial">
-        <h2>회원탈퇴를 확인해주세요</h2>
-        <p>아래 버튼을 클릭하면 회원탈퇴가 완료됩니다. 이 링크는 24시간 동안만 유효합니다.</p>
-        <p style="margin:24px 0">
-          <a href="${confirmLink}" style="background:#10b981;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;display:inline-block">
-            회원탈퇴 확인
-          </a>
-        </p>
-        <p>버튼이 동작하지 않으면 다음 링크를 브라우저에 붙여넣으세요:<br/>
-          <a href="${confirmLink}">${confirmLink}</a>
-        </p>
-        <hr/>
-        <small>요청하지 않았다면 이 메일을 무시하세요. 계정은 삭제되지 않습니다.</small>
-      </div>
-    `;
-    await sendEmail({ to: email, subject, html });
+    const { error: insertErr } = await admin.from('account_deletion_tokens').insert(row);
+    if (insertErr) {
+      console.error(insertErr);
+      return serverError('토큰 저장에 실패했습니다.');
+    }
 
-    return jsonResponse(req, { ok: true });
-  } catch (e: any) {
+    const confirmUrl = `https://jeongwooshin.github.io/runbickers.github.io/account-deletion-confirm.html?token=${encodeURIComponent(token)}`;
+    const emailHtml = `<p>회원탈퇴 확인을 위해 아래 링크를 클릭하세요 (24시간 내 유효)</p><p><a href="${confirmUrl}">${confirmUrl}</a></p>`;
+
+    const mail = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'Runbickers <noreply@runbickers.app>',
+        to: [email],
+        subject: 'Runbickers 회원탈퇴 확인',
+        html: emailHtml,
+      }),
+    });
+    if (!mail.ok) {
+      const t = await mail.text();
+      console.error('Email send failed:', t);
+      return serverError('이메일 전송에 실패했습니다.');
+    }
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+  } catch (e) {
     console.error(e);
-    return jsonResponse(req, { error: "서버 오류가 발생했습니다." }, 500);
+    return serverError('internal error');
   }
 });
