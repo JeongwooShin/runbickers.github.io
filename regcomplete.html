@@ -22,10 +22,12 @@
   <script type="module">
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+    // 프로젝트 값
     const SUPABASE_URL = 'https://sragibpyggwxbghyfuzq.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNyYWdpYnB5Z2d3eGJnaHlmdXpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwMTYwMTYsImV4cCI6MjA2ODU5MjAxNn0.oOKRCaMs42f-LD8DclL_tXimCIY5OOKWuSHerIOj8-0';
-    const FUNCTIONS_BASE_1 = SUPABASE_URL.replace('.supabase.co', '.functions.supabase.co'); // 권장
-    const FUNCTIONS_BASE_2 = `${SUPABASE_URL}/functions/v1`; // 프록시 경로
+
+    // 프록시 경로만 사용(권장)
+    const FUNCTIONS_PROXY = `${SUPABASE_URL}/functions/v1`;
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const $ = (s)=>document.querySelector(s);
@@ -88,18 +90,17 @@
 
     async function callViaInvoke(session, rc) {
       log('invoke 경로 시도 중...', '');
-      // Authorization을 명시적으로 강제 설정
+      // supabase-js가 Authorization/apikey를 자동 추가하지만, 확실히 하기 위해 Authorization도 명시
       const { data, error } = await supabase.functions.invoke('process-referral', {
         body: { referralCode: rc },
         headers: { Authorization: `Bearer ${session.access_token}` }
       });
-      if (error) throw new Error(error.message || 'invoke failed');
+      if (error) throw new Error(`${error.message || 'invoke failed'}`);
       return data;
     }
 
     async function callViaFetch(session, rc) {
-      const url1 = `${FUNCTIONS_BASE_1}/process-referral`;
-      const url2 = `${FUNCTIONS_BASE_2}/process-referral`;
+      const url = `${FUNCTIONS_PROXY}/process-referral`;
       const headers = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session.access_token}`,
@@ -107,26 +108,21 @@
       };
       const body = JSON.stringify({ referralCode: rc });
 
-      // 디버그 로그
-      log(`fetch 경로 시도: ${url1}`, 'warn');
+      log(`fetch 경로 시도: ${url}`, 'warn');
       log(`보낼 Authorization 길이: ${String(headers.Authorization).length}`, 'warn');
       log(`보낼 apikey 길이: ${String(headers.apikey).length}`, 'warn');
 
-      const doFetch = async (u)=>{
-        const resp = await fetch(u, { method:'POST', headers, body, mode:'cors' });
-        if (!resp.ok) {
-          let errText = `${resp.status} ${resp.statusText}`;
-          try { const j = await resp.json(); if (j?.error) errText = j.error; } catch { try { errText = await resp.text(); } catch {} }
-          throw new Error(errText);
-        }
-        try { return await resp.json(); } catch { return {}; }
-      };
+      const resp = await fetch(url, { method:'POST', headers, body, mode:'cors' });
+      const text = await resp.text().catch(()=> '');
+      // 디버그: 상태/본문 일부 표시
+      log(`fetch 응답: status=${resp.status} body=${text.slice(0,120)}`, resp.ok?'ok':'warn');
 
-      try { return await doFetch(url1); }
-      catch (e1) {
-        log(`fetch 1차 실패: ${e1.message}`, 'warn');
-        return await doFetch(url2).catch(e2=>{ throw new Error(e2?.message || e1?.message || 'Function call failed'); });
+      if (!resp.ok) {
+        let msg = text;
+        try { const j = JSON.parse(text); if (j?.error) msg = j.error; } catch {}
+        throw new Error(msg || `${resp.status} ${resp.statusText}`);
       }
+      try { return JSON.parse(text); } catch { return {}; }
     }
 
     async function applyReferralIfNeeded() {
