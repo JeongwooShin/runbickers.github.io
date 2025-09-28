@@ -18,149 +18,106 @@
     a.btn,button { display:inline-block; padding:10px 14px; border-radius:8px; border:1px solid #2f6feb; color:#fff; background:#2f6feb; text-decoration:none; cursor:pointer; }
     .ghost { background:transparent; color:#2f6feb; }
     .actions { display:flex; gap:8px; margin-top:14px; }
-    code { background:#0001; padding:2px 6px; border-radius:6px; }
   </style>
   <script type="module">
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-    // 프로젝트 값(레포에 하드코딩된 동일 값)
     const SUPABASE_URL = 'https://sragibpyggwxbghyfuzq.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNyYWdpYnB5Z2d3eGJnaHlmdXpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwMTYwMTYsImV4cCI6MjA2ODU5MjAxNn0.oOKRCaMs42f-LD8DclL_tXimCIY5OOKWuSHerIOj8-0';
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-    const $ = (sel) => document.querySelector(sel);
-    const log = (msg, cls='') => {
-      const el = document.createElement('div');
-      el.textContent = msg;
-      if (cls) el.className = cls;
-      $('#log').appendChild(el);
-    };
+    const $ = (s)=>document.querySelector(s);
+    const log = (m,c='')=>{ const el=document.createElement('div'); el.textContent=m; if(c) el.className=c; $('#log').appendChild(el); };
 
     const qs = new URLSearchParams(location.search);
     const hs = new URLSearchParams(location.hash.replace(/^#/, ''));
 
-    // Base64URL → string (padding 보정)
+    // Base64URL decode with padding
     function b64urlToStr(b64url) {
       try {
-        let s = b64url.replace(/-/g, '+').replace(/_/g, '/');
-        const pad = s.length % 4;
-        if (pad) s += '='.repeat(4 - pad);
+        let s=b64url.replace(/-/g,'+').replace(/_/g,'/'); const pad=s.length%4; if(pad) s+='='.repeat(4-pad);
         return atob(s);
       } catch { return ''; }
     }
     function parseJwtPayload(token) {
-      try {
-        const parts = token.split('.');
-        if (parts.length < 2) return null;
-        const json = b64urlToStr(parts[1]);
-        return json ? JSON.parse(json) : null;
-      } catch { return null; }
+      try { const p=token.split('.'); if(p.length<2) return null; const j=b64urlToStr(p[1]); return j?JSON.parse(j):null; } catch { return null; }
     }
 
     function readReferralFromUrlOrLS() {
-      const fromUrl  = qs.get('rc') || qs.get('ref') || qs.get('referralCode');
-      const fromHash = hs.get('rc') || hs.get('ref') || hs.get('referralCode');
-      const fromLS   = localStorage.getItem('pendingReferralCode');
-      const rc = (fromUrl || fromHash || fromLS || '').trim();
-      if (rc) localStorage.setItem('pendingReferralCode', rc);
+      const fromUrl=qs.get('rc')||qs.get('ref')||qs.get('referralCode');
+      const fromHash=hs.get('rc')||hs.get('ref')||hs.get('referralCode');
+      const fromLS=localStorage.getItem('pendingReferralCode');
+      const rc=(fromUrl||fromHash||fromLS||'').trim();
+      if(rc) localStorage.setItem('pendingReferralCode', rc);
       return rc;
     }
     function readReferralFromJWT() {
-      const at = hs.get('access_token');
-      if (!at) return '';
-      const payload = parseJwtPayload(at);
-      const rc = payload?.user_metadata?.referralCode || payload?.user_metadata?.referralcode || '';
-      return (rc || '').trim();
+      const at=hs.get('access_token'); if(!at) return '';
+      const payload=parseJwtPayload(at);
+      const rc=payload?.user_metadata?.referralCode||payload?.user_metadata?.referralcode||'';
+      return (rc||'').trim();
     }
 
     async function ensureSession() {
-      // 1) 기존 세션
-      let { data: { session } } = await supabase.auth.getSession();
+      let { data:{ session } } = await supabase.auth.getSession();
       if (session) return session;
-
-      // 2) code 교환
       const code = qs.get('code') || hs.get('code');
       if (code) {
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
         if (!error && data?.session) return data.session;
       }
-
-      // 3) hash 토큰으로 세션 설정
-      const at = hs.get('access_token');
-      const rt = hs.get('refresh_token');
+      const at = hs.get('access_token'); const rt = hs.get('refresh_token');
       if (at && rt) {
         const { data, error } = await supabase.auth.setSession({ access_token: at, refresh_token: rt });
         if (!error && data?.session) return data.session;
       }
-
-      // 4) 마지막 재확인
-      ({ data: { session } } = await supabase.auth.getSession());
+      ({ data:{ session } } = await supabase.auth.getSession());
       return session ?? null;
     }
 
     async function detectReferralCode() {
-      // 1) URL/로컬스토리지
-      let rc = readReferralFromUrlOrLS();
-      if (rc) return rc;
-
-      // 2) JWT payload(해시)
-      rc = readReferralFromJWT();
-      if (rc) return rc;
-
-      // 3) 세션 설정 후 user_metadata
+      let rc = readReferralFromUrlOrLS(); if (rc) return rc;
+      rc = readReferralFromJWT(); if (rc) return rc;
       const session = await ensureSession();
       if (session) {
         try {
-          const { data: userData } = await supabase.auth.getUser();
-          const rcMeta = (userData?.user?.user_metadata?.referralCode || '').trim();
+          const { data: ud } = await supabase.auth.getUser();
+          const rcMeta=(ud?.user?.user_metadata?.referralCode||'').trim();
           if (rcMeta) return rcMeta;
         } catch {}
       }
       return '';
     }
 
-    async function callProcessReferral(session, rc) {
-      // 1차: functions 전용 도메인
-      const fnUrl1 = SUPABASE_URL.replace('.supabase.co', '.functions.supabase.co') + '/process-referral';
-      // 2차: 프록시 경로
-      const fnUrl2 = SUPABASE_URL + '/functions/v1/process-referral';
+    async function callViaInvoke(rc) {
+      // supabase-js가 Authorization/apikey를 자동 설정
+      const { data, error } = await supabase.functions.invoke('process-referral', { body: { referralCode: rc } });
+      if (error) throw new Error(error.message || 'invoke failed');
+      return data;
+    }
 
+    async function callViaFetch(session, rc) {
+      const url1 = SUPABASE_URL.replace('.supabase.co', '.functions.supabase.co') + '/process-referral';
+      const url2 = SUPABASE_URL + '/functions/v1/process-referral';
       const headers = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session.access_token}`,
-        'apikey': SUPABASE_ANON_KEY, // 게이트웨이 요구 시 대비
+        'apikey': SUPABASE_ANON_KEY,
       };
       const body = JSON.stringify({ referralCode: rc });
 
-      // helper: 요청-응답 처리
-      const doFetch = async (url) => {
-        const resp = await fetch(url, { method: 'POST', headers, body });
+      const doFetch = async (u)=>{
+        const resp = await fetch(u, { method:'POST', headers, body });
         if (!resp.ok) {
           let errText = `${resp.status} ${resp.statusText}`;
-          try {
-            const j = await resp.json();
-            if (j?.error) errText = j.error;
-          } catch {
-            try { errText = await resp.text(); } catch {}
-          }
+          try { const j = await resp.json(); if (j?.error) errText = j.error; } catch { try { errText = await resp.text(); } catch {} }
           throw new Error(errText);
         }
         try { return await resp.json(); } catch { return {}; }
       };
 
-      // 시도 1 → 실패 시 시도 2
-      try {
-        return await doFetch(fnUrl1);
-      } catch (e1) {
-        // 400 계열이면 굳이 2차 시도 안 해도 되지만, 게이트웨이/도메인 이슈 대비로 한 번 더
-        try {
-          return await doFetch(fnUrl2);
-        } catch (e2) {
-          // 더 자세한 메시지로 표기
-          throw new Error(e2?.message || e1?.message || 'Function call failed');
-        }
-      }
+      try { return await doFetch(url1); }
+      catch (e1) { return await doFetch(url2).catch(e2=>{ throw new Error(e2?.message || e1?.message || 'Function call failed'); }); }
     }
 
     async function applyReferralIfNeeded() {
@@ -168,38 +125,40 @@
       log('필요 시 추천 코드 적용을 보정합니다...', '');
 
       const session = await ensureSession();
-      if (!session) {
-        log('세션이 없습니다. 로그인 후 다시 시도해주세요.', 'err');
-        return;
-      }
+      if (!session) { log('세션이 없습니다. 로그인 후 다시 시도해주세요.', 'err'); return; }
 
-      // 인증된 사용자 이메일
+      // 디버그: 토큰 길이만 표시
+      const tokenLen = (session?.access_token || '').length;
+      log(`세션 토큰 감지: length=${tokenLen}`, tokenLen>0?'ok':'err');
+
+      // 인증된 사용자 메일
       try {
         const { data: me } = await supabase.auth.getUser();
-        const email = me?.user?.email || '(unknown)';
-        log(`인증된 사용자: ${email}`, 'ok');
+        log(`인증된 사용자: ${me?.user?.email || '(unknown)'}`, 'ok');
       } catch {}
 
       const rc = await detectReferralCode();
-      if (!rc) {
-        log('추천 코드가 감지되지 않았습니다(rc/ref/referralCode / user_metadata / JWT).', 'warn');
-        return;
-      }
+      if (!rc) { log('추천 코드가 감지되지 않았습니다(rc/ref/referralCode / user_metadata / JWT).', 'warn'); return; }
       log(`감지된 추천 코드: ${rc}`, 'ok');
 
-      // 중복 호출 회피(선택)
+      // 과도한 중복 호출 회피(선택)
       try {
         const since = new Date(Date.now() - 24*60*60*1000).toISOString();
         const { data: tx } = await supabase.from('coin_transactions').select('id').gte('created_at', since).limit(1);
-        if (tx && tx.length > 0) {
-          log('최근 트랜잭션이 이미 존재하여 추천 보정 호출을 생략합니다.', 'warn');
-          return;
-        }
+        if (tx && tx.length>0) { log('최근 트랜잭션 존재 → 호출 생략', 'warn'); return; }
       } catch {}
 
       log('추천 보상 처리 시도 중...', '');
       try {
-        const data = await callProcessReferral(session, rc);
+        // 1차: invoke (권장)
+        let data;
+        try { data = await callViaInvoke(rc); }
+        catch (e) {
+          log(`invoke 실패: ${e.message}`, 'warn');
+          // 2차: fetch (Authorization/apikey 강제)
+          data = await callViaFetch(session, rc);
+        }
+
         if (data?.success) {
           log(`추천 보상이 적용되었습니다. 추천인(+${data.referrerReward}), 피추천인(+${data.refereeReward})`, 'ok');
           localStorage.removeItem('pendingReferralCode');
@@ -218,16 +177,11 @@
   <div class="card">
     <h1>가입이 완료되었습니다</h1>
     <div class="muted">Your registration has completed.</div>
-
-    <div class="row">
-      <div id="log" class="log" role="status" aria-live="polite"></div>
-    </div>
-
+    <div class="row"><div id="log" class="log" role="status" aria-live="polite"></div></div>
     <div class="actions">
       <a class="btn" href="./">앱으로 이동</a>
       <a class="btn ghost" href="./index.html">홈으로</a>
     </div>
-
     <div class="row muted">
       참고:
       <ul>
