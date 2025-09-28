@@ -24,6 +24,8 @@
 
     const SUPABASE_URL = 'https://sragibpyggwxbghyfuzq.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNyYWdpYnB5Z2d3eGJnaHlmdXpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwMTYwMTYsImV4cCI6MjA2ODU5MjAxNn0.oOKRCaMs42f-LD8DclL_tXimCIY5OOKWuSHerIOj8-0';
+    const FUNCTIONS_BASE_1 = SUPABASE_URL.replace('.supabase.co', '.functions.supabase.co'); // 권장
+    const FUNCTIONS_BASE_2 = `${SUPABASE_URL}/functions/v1`; // 프록시 경로
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const $ = (s)=>document.querySelector(s);
@@ -32,16 +34,8 @@
     const qs = new URLSearchParams(location.search);
     const hs = new URLSearchParams(location.hash.replace(/^#/, ''));
 
-    // Base64URL decode with padding
-    function b64urlToStr(b64url) {
-      try {
-        let s=b64url.replace(/-/g,'+').replace(/_/g,'/'); const pad=s.length%4; if(pad) s+='='.repeat(4-pad);
-        return atob(s);
-      } catch { return ''; }
-    }
-    function parseJwtPayload(token) {
-      try { const p=token.split('.'); if(p.length<2) return null; const j=b64urlToStr(p[1]); return j?JSON.parse(j):null; } catch { return null; }
-    }
+    function b64urlToStr(b64url) { try { let s=b64url.replace(/-/g,'+').replace(/_/g,'/'); const pad=s.length%4; if(pad) s+='='.repeat(4-pad); return atob(s);} catch { return ''; } }
+    function parseJwtPayload(token) { try { const p=token.split('.'); if(p.length<2) return null; const j=b64urlToStr(p[1]); return j?JSON.parse(j):null; } catch { return null; } }
 
     function readReferralFromUrlOrLS() {
       const fromUrl=qs.get('rc')||qs.get('ref')||qs.get('referralCode');
@@ -61,16 +55,19 @@
     async function ensureSession() {
       let { data:{ session } } = await supabase.auth.getSession();
       if (session) return session;
+
       const code = qs.get('code') || hs.get('code');
       if (code) {
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
         if (!error && data?.session) return data.session;
       }
+
       const at = hs.get('access_token'); const rt = hs.get('refresh_token');
       if (at && rt) {
         const { data, error } = await supabase.auth.setSession({ access_token: at, refresh_token: rt });
         if (!error && data?.session) return data.session;
       }
+
       ({ data:{ session } } = await supabase.auth.getSession());
       return session ?? null;
     }
@@ -89,16 +86,20 @@
       return '';
     }
 
-    async function callViaInvoke(rc) {
-      // supabase-js가 Authorization/apikey를 자동 설정
-      const { data, error } = await supabase.functions.invoke('process-referral', { body: { referralCode: rc } });
+    async function callViaInvoke(session, rc) {
+      log('invoke 경로 시도 중...', '');
+      // Authorization을 명시적으로 강제 설정
+      const { data, error } = await supabase.functions.invoke('process-referral', {
+        body: { referralCode: rc },
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      });
       if (error) throw new Error(error.message || 'invoke failed');
       return data;
     }
 
     async function callViaFetch(session, rc) {
-      const url1 = SUPABASE_URL.replace('.supabase.co', '.functions.supabase.co') + '/process-referral';
-      const url2 = SUPABASE_URL + '/functions/v1/process-referral';
+      const url1 = `${FUNCTIONS_BASE_1}/process-referral`;
+      const url2 = `${FUNCTIONS_BASE_2}/process-referral`;
       const headers = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session.access_token}`,
@@ -106,8 +107,13 @@
       };
       const body = JSON.stringify({ referralCode: rc });
 
+      // 디버그 로그
+      log(`fetch 경로 시도: ${url1}`, 'warn');
+      log(`보낼 Authorization 길이: ${String(headers.Authorization).length}`, 'warn');
+      log(`보낼 apikey 길이: ${String(headers.apikey).length}`, 'warn');
+
       const doFetch = async (u)=>{
-        const resp = await fetch(u, { method:'POST', headers, body });
+        const resp = await fetch(u, { method:'POST', headers, body, mode:'cors' });
         if (!resp.ok) {
           let errText = `${resp.status} ${resp.statusText}`;
           try { const j = await resp.json(); if (j?.error) errText = j.error; } catch { try { errText = await resp.text(); } catch {} }
@@ -117,7 +123,10 @@
       };
 
       try { return await doFetch(url1); }
-      catch (e1) { return await doFetch(url2).catch(e2=>{ throw new Error(e2?.message || e1?.message || 'Function call failed'); }); }
+      catch (e1) {
+        log(`fetch 1차 실패: ${e1.message}`, 'warn');
+        return await doFetch(url2).catch(e2=>{ throw new Error(e2?.message || e1?.message || 'Function call failed'); });
+      }
     }
 
     async function applyReferralIfNeeded() {
@@ -125,13 +134,11 @@
       log('필요 시 추천 코드 적용을 보정합니다...', '');
 
       const session = await ensureSession();
+      const tokenLen = (session?.access_token || '').length;
+      log(`세션 토큰 감지: length=${tokenLen}`, tokenLen>0 ? 'ok' : 'err');
+
       if (!session) { log('세션이 없습니다. 로그인 후 다시 시도해주세요.', 'err'); return; }
 
-      // 디버그: 토큰 길이만 표시
-      const tokenLen = (session?.access_token || '').length;
-      log(`세션 토큰 감지: length=${tokenLen}`, tokenLen>0?'ok':'err');
-
-      // 인증된 사용자 메일
       try {
         const { data: me } = await supabase.auth.getUser();
         log(`인증된 사용자: ${me?.user?.email || '(unknown)'}`, 'ok');
@@ -141,7 +148,7 @@
       if (!rc) { log('추천 코드가 감지되지 않았습니다(rc/ref/referralCode / user_metadata / JWT).', 'warn'); return; }
       log(`감지된 추천 코드: ${rc}`, 'ok');
 
-      // 과도한 중복 호출 회피(선택)
+      // 중복 호출 회피(선택)
       try {
         const since = new Date(Date.now() - 24*60*60*1000).toISOString();
         const { data: tx } = await supabase.from('coin_transactions').select('id').gte('created_at', since).limit(1);
@@ -149,13 +156,12 @@
       } catch {}
 
       log('추천 보상 처리 시도 중...', '');
+
       try {
-        // 1차: invoke (권장)
         let data;
-        try { data = await callViaInvoke(rc); }
+        try { data = await callViaInvoke(session, rc); }
         catch (e) {
           log(`invoke 실패: ${e.message}`, 'warn');
-          // 2차: fetch (Authorization/apikey 강제)
           data = await callViaFetch(session, rc);
         }
 
