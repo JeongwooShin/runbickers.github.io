@@ -11,14 +11,14 @@
     h1 { margin: 0 0 6px 0; font-size: 20px; }
     .muted { color: #666; font-size: 14px; margin-top: 2px; }
     .log { margin-top: 16px; padding: 12px; border-radius: 8px; background: #f6f8fa; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
-    .ok { color: #0a7f2e; }
-    .warn { color: #a15a00; }
+    .ok  { color: #0a7f2e; }
+    .warn{ color: #a15a00; }
     .err { color: #b00020; }
     .row { margin-top: 12px; }
-    button, a.btn { display: inline-block; padding: 10px 14px; border-radius: 8px; border: 1px solid #2f6feb; color: #fff; background: #2f6feb; text-decoration: none; cursor: pointer; }
-    .ghost { background: transparent; color: #2f6feb; }
-    .actions { display: flex; gap: 8px; margin-top: 14px; }
-    code { background: #0001; padding: 2px 6px; border-radius: 6px; }
+    a.btn,button { display:inline-block; padding:10px 14px; border-radius:8px; border:1px solid #2f6feb; color:#fff; background:#2f6feb; text-decoration:none; cursor:pointer; }
+    .ghost { background:transparent; color:#2f6feb; }
+    .actions { display:flex; gap:8px; margin-top:14px; }
+    code { background:#0001; padding:2px 6px; border-radius:6px; }
   </style>
   <script type="module">
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -30,7 +30,7 @@
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const $ = (sel) => document.querySelector(sel);
-    const log = (msg, cls = '') => {
+    const log = (msg, cls='') => {
       const el = document.createElement('div');
       el.textContent = msg;
       if (cls) el.className = cls;
@@ -49,7 +49,6 @@
         return atob(s);
       } catch { return ''; }
     }
-    // JWT payload 파싱
     function parseJwtPayload(token) {
       try {
         const parts = token.split('.');
@@ -60,14 +59,13 @@
     }
 
     function readReferralFromUrlOrLS() {
-      const fromUrl = qs.get('rc') || qs.get('ref') || qs.get('referralCode');
+      const fromUrl  = qs.get('rc') || qs.get('ref') || qs.get('referralCode');
       const fromHash = hs.get('rc') || hs.get('ref') || hs.get('referralCode');
-      const fromLS = localStorage.getItem('pendingReferralCode');
+      const fromLS   = localStorage.getItem('pendingReferralCode');
       const rc = (fromUrl || fromHash || fromLS || '').trim();
       if (rc) localStorage.setItem('pendingReferralCode', rc);
       return rc;
     }
-
     function readReferralFromJWT() {
       const at = hs.get('access_token');
       if (!at) return '';
@@ -77,11 +75,11 @@
     }
 
     async function ensureSession() {
-      // 1) 기존 세션 확인
+      // 1) 기존 세션
       let { data: { session } } = await supabase.auth.getSession();
       if (session) return session;
 
-      // 2) code → session 교환
+      // 2) code 교환
       const code = qs.get('code') || hs.get('code');
       if (code) {
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
@@ -106,11 +104,11 @@
       let rc = readReferralFromUrlOrLS();
       if (rc) return rc;
 
-      // 2) JWT payload(해시)에서 추출 — 세션 세팅 전에도 동작
+      // 2) JWT payload(해시)
       rc = readReferralFromJWT();
       if (rc) return rc;
 
-      // 3) 세션 설정 후 user_metadata에서 추출
+      // 3) 세션 설정 후 user_metadata
       const session = await ensureSession();
       if (session) {
         try {
@@ -122,68 +120,86 @@
       return '';
     }
 
+    async function callProcessReferral(session, rc) {
+      // 1차: functions 전용 도메인
+      const fnUrl1 = SUPABASE_URL.replace('.supabase.co', '.functions.supabase.co') + '/process-referral';
+      // 2차: 프록시 경로
+      const fnUrl2 = SUPABASE_URL + '/functions/v1/process-referral';
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+        'apikey': SUPABASE_ANON_KEY, // 게이트웨이 요구 시 대비
+      };
+      const body = JSON.stringify({ referralCode: rc });
+
+      // helper: 요청-응답 처리
+      const doFetch = async (url) => {
+        const resp = await fetch(url, { method: 'POST', headers, body });
+        if (!resp.ok) {
+          let errText = `${resp.status} ${resp.statusText}`;
+          try {
+            const j = await resp.json();
+            if (j?.error) errText = j.error;
+          } catch {
+            try { errText = await resp.text(); } catch {}
+          }
+          throw new Error(errText);
+        }
+        try { return await resp.json(); } catch { return {}; }
+      };
+
+      // 시도 1 → 실패 시 시도 2
+      try {
+        return await doFetch(fnUrl1);
+      } catch (e1) {
+        // 400 계열이면 굳이 2차 시도 안 해도 되지만, 게이트웨이/도메인 이슈 대비로 한 번 더
+        try {
+          return await doFetch(fnUrl2);
+        } catch (e2) {
+          // 더 자세한 메시지로 표기
+          throw new Error(e2?.message || e1?.message || 'Function call failed');
+        }
+      }
+    }
+
     async function applyReferralIfNeeded() {
       log('가입 인증이 완료되었습니다.', 'ok');
       log('필요 시 추천 코드 적용을 보정합니다...', '');
 
-      const session = await ensureSession(); // 세션부터 확보
+      const session = await ensureSession();
       if (!session) {
         log('세션이 없습니다. 로그인 후 다시 시도해주세요.', 'err');
         return;
       }
 
-      // 인증된 사용자 이메일 로그
+      // 인증된 사용자 이메일
       try {
         const { data: me } = await supabase.auth.getUser();
         const email = me?.user?.email || '(unknown)';
         log(`인증된 사용자: ${email}`, 'ok');
       } catch {}
 
-      // 추천 코드 감지
       const rc = await detectReferralCode();
       if (!rc) {
-        log('추천 코드가 감지되지 않았습니다(rc/ref/referralCode / user_metadata).', 'warn');
+        log('추천 코드가 감지되지 않았습니다(rc/ref/referralCode / user_metadata / JWT).', 'warn');
         return;
       }
       log(`감지된 추천 코드: ${rc}`, 'ok');
 
-      // 과도한 중복 호출 회피(선택)
+      // 중복 호출 회피(선택)
       try {
-        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        const { data: tx } = await supabase
-          .from('coin_transactions')
-          .select('id')
-          .gte('created_at', since)
-          .limit(1);
+        const since = new Date(Date.now() - 24*60*60*1000).toISOString();
+        const { data: tx } = await supabase.from('coin_transactions').select('id').gte('created_at', since).limit(1);
         if (tx && tx.length > 0) {
           log('최근 트랜잭션이 이미 존재하여 추천 보정 호출을 생략합니다.', 'warn');
           return;
         }
       } catch {}
 
-      // Edge Function 호출 — fetch로 상세 에러 표시
       log('추천 보상 처리 시도 중...', '');
       try {
-        const FUNCTIONS_BASE = SUPABASE_URL.replace('.supabase.co', '.functions.supabase.co');
-        const resp = await fetch(`${FUNCTIONS_BASE}/process-referral`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ referralCode: rc }),
-        });
-
-        if (!resp.ok) {
-          let errText = resp.statusText;
-          try {
-            const j = await resp.json();
-            if (j?.error) errText = j.error;
-          } catch {}
-          log(`추천 처리 실패: ${errText}`, 'err');
-          return;
-        }
-        const data = await resp.json().catch(() => ({}));
+        const data = await callProcessReferral(session, rc);
         if (data?.success) {
           log(`추천 보상이 적용되었습니다. 추천인(+${data.referrerReward}), 피추천인(+${data.refereeReward})`, 'ok');
           localStorage.removeItem('pendingReferralCode');
@@ -191,7 +207,7 @@
           log('추천 처리 결과를 확인할 수 없습니다.', 'warn');
         }
       } catch (e) {
-        log(`추천 처리 호출 실패: ${e.message}`, 'err');
+        log(`추천 처리 실패: ${e.message}`, 'err');
       }
     }
 
