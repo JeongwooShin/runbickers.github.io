@@ -10,7 +10,7 @@
     .card { max-width: 720px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; background: #fff; }
     h1 { margin: 0 0 8px; font-size: 20px; }
     .muted { color: #6b7280; font-size: 14px; }
-    .status { margin-top: 14px; padding: 12px; border-radius: 10px; background: #f8fafc; font-size: 14px; }
+    .status { margin-top: 14px; padding: 12px; border-radius: 10px; background: #f8fafc; font-size: 14px; display:none; }
     .ok  { color: #065f46; background: #ecfdf5; }
     .warn{ color: #7c2d12; background: #fff7ed; }
     .err { color: #991b1b; background: #fef2f2; }
@@ -18,7 +18,7 @@
   <script type="module">
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.46.1';
 
-    // 프로젝트 설정
+    // 프로젝트 설정(이미 사용 중인 값으로 교체하세요)
     const SUPABASE_URL = 'https://sragibpyggwxbghyfuzq.supabase.co';
     const SUPABASE_ANON_KEY = 'REPLACE_WITH_PUBLIC_ANON_KEY';
     const FUNCTIONS_URL = 'https://sragibpyggwxbghyfuzq.functions.supabase.co';
@@ -126,7 +126,11 @@
       setStatus('추천 보상을 확인 중입니다…', 'warn');
 
       const session = await ensureSession();
-      if (!session) { setStatus('세션을 확인할 수 없습니다. 로그인 후 다시 시도해 주세요.', 'err'); return; }
+      if (!session) {
+        // 요청하신 문구 추가
+        setStatus('세션을 확인할 수 없습니다. 로그인 후 다시 시도해 주세요. (로그인 시 추천코드가 자동 적용됩니다)', 'err');
+        return;
+      }
 
       const rc = await detectReferralCode();
 
@@ -135,7 +139,6 @@
         try {
           await callProcessReferral(session, rc);
         } catch (e) {
-          // 호출 에러는 무시하고 폴링으로 확인
           console.warn('process-referral failed (will poll):', e);
         } finally {
           localStorage.removeItem('pendingReferralCode');
@@ -147,7 +150,7 @@
       if (ok) {
         setStatus('추천 보상이 적용되었습니다.', 'ok');
       } else {
-        hideStatus(); // 불필요한 경고 배너 제거
+        hideStatus();
       }
     }
 
@@ -159,7 +162,7 @@
     <h1 id="headline">가입 완료</h1>
     <div class="muted">Your registration has completed.</div>
 
-    <div id="status" class="status" style="display:none"></div>
+    <div id="status" class="status"></div>
   </div>
 </body>
 </html>
