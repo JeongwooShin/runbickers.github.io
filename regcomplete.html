@@ -14,29 +14,33 @@
     .ok  { color: #065f46; background: #ecfdf5; }
     .warn{ color: #7c2d12; background: #fff7ed; }
     .err { color: #991b1b; background: #fef2f2; }
-    .actions { display:flex; gap:10px; margin-top:16px; }
-    .btn { display:inline-block; padding:10px 14px; border-radius:8px; border:1px solid #2563eb; color:#fff; background:#2563eb; text-decoration:none; }
-    .ghost { background:#fff; color:#2563eb; }
-    .small { font-size: 12px; color:#6b7280; margin-top:10px; }
   </style>
   <script type="module">
-    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.46.1';
 
     // 프로젝트 설정
     const SUPABASE_URL = 'https://sragibpyggwxbghyfuzq.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNyYWdpYnB5Z2d3eGJnaHlmdXpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwMTYwMTYsImV4cCI6MjA2ODU5MjAxNn0.oOKRCaMs42f-LD8DclL_tXimCIY5OOKWuSHerIOj8-0';
-    const FUNCTIONS_PROXY = `${SUPABASE_URL}/functions/v1`;
+    const SUPABASE_ANON_KEY = 'REPLACE_WITH_PUBLIC_ANON_KEY';
+    const FUNCTIONS_URL = 'https://sragibpyggwxbghyfuzq.functions.supabase.co';
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      functions: { url: FUNCTIONS_URL },
+    });
+
     const $ = (s)=>document.querySelector(s);
-
     const qs = new URLSearchParams(location.search);
     const hs = new URLSearchParams(location.hash.replace(/^#/, ''));
 
     function setStatus(text, cls='') {
       const el = $('#status');
+      if (!el) return;
       el.className = `status ${cls}`;
       el.textContent = text;
+      el.style.display = 'block';
+    }
+    function hideStatus() {
+      const el = $('#status');
+      if (el) el.style.display = 'none';
     }
 
     function b64urlToStr(b64url) { try { let s=b64url.replace(/-/g,'+').replace(/_/g,'/'); const pad=s.length%4; if(pad) s+='='.repeat(4-pad); return atob(s);} catch { return ''; } }
@@ -88,108 +92,62 @@
       return '';
     }
 
-    async function getAdminRewardsFallback() {
-      // 프런트에서 admin_settings를 읽을 수 없을 수도 있으므로 조용히 시도 후 실패해도 무시
-      try {
-        const { data } = await supabase
-          .from('admin_settings')
-          .select('key,value')
-          .in('key',['referral_referrer_reward','referral_referee_reward']);
-        if (!data) return {};
-        const map = new Map(data.map((s)=>[s.key, s.value]));
-        const toInt = (v)=>{
-          if (v == null) return undefined;
-          const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
-          const n = parseInt(s.replaceAll('"',''),10);
-          return Number.isFinite(n) ? n : undefined;
-        };
-        return {
-          referrerReward: toInt(map.get('referral_referrer_reward')),
-          refereeReward:  toInt(map.get('referral_referee_reward')),
-        };
-      } catch { return {}; }
+    async function callProcessReferral(session, rc) {
+      const { data, error } = await supabase.functions.invoke('process-referral', {
+        body: { referralCode: rc },
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      });
+      if (error) throw new Error(error.message || 'invoke failed');
+      return data;
     }
 
-    async function callProcessReferral(session, rc) {
-      // 우선 invoke 사용(표시는 하지 않음)
-      try {
-        const { data, error } = await supabase.functions.invoke('process-referral', {
-          body: { referralCode: rc },
-          headers: { Authorization: `Bearer ${session.access_token}` }
-        });
-        if (error) throw new Error(error.message || 'invoke failed');
-        return data;
-      } catch (e1) {
-        // 프록시 경로로 폴백(표시는 하지 않음)
-        const url = `${FUNCTIONS_PROXY}/process-referral`;
-        const resp = await fetch(url, {
-          method:'POST',
-          headers:{
-            'Content-Type':'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({ referralCode: rc }),
-          mode:'cors'
-        });
-        const text = await resp.text().catch(()=> '');
-        if (!resp.ok) {
-          let msg = text;
-          try { const j = JSON.parse(text); if (j?.error) msg = j.error; } catch {}
-          throw new Error(msg || `${resp.status} ${resp.statusText}`);
-        }
-        try { return JSON.parse(text); } catch { return {}; }
+    async function pollInviteeReward(maxWaitMs = 6000, intervalMs = 500) {
+      const start = Date.now();
+      while (Date.now() - start < maxWaitMs) {
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id;
+        if (!userId) break;
+
+        const { data, error } = await supabase
+          .from('rp_transactions')
+          .select('id')
+          .eq('user_id', userId)
+          .like('idempotency_key', 'referral:invitee:%')
+          .limit(1);
+        if (!error && data && data.length > 0) return true;
+
+        await new Promise(r => setTimeout(r, intervalMs));
       }
+      return false;
     }
 
     async function run() {
-      // 1) 상단 완료 문구
       $('#headline').textContent = '가입 인증이 완료되었습니다.';
-      // 2) 진행 상태
-      setStatus('처리중입니다...', 'warn');
+      setStatus('추천 보상을 확인 중입니다…', 'warn');
 
       const session = await ensureSession();
       if (!session) { setStatus('세션을 확인할 수 없습니다. 로그인 후 다시 시도해 주세요.', 'err'); return; }
 
       const rc = await detectReferralCode();
-      if (!rc) { setStatus('추천 코드가 감지되지 않았습니다.', 'warn'); return; }
 
-      try {
-        // 중복 호출 최소화(최근 24시간 내 거래가 있으면 스킵)
+      // 1) 추천 코드가 있으면 한 번만 호출(서버가 멱등 보장)
+      if (rc) {
         try {
-          const since = new Date(Date.now() - 24*60*60*1000).toISOString();
-          const { data: tx } = await supabase.from('coin_transactions').select('id').gte('created_at', since).limit(1);
-          if (tx && tx.length>0) {
-            // 이미 처리된 것으로 판단(최소화 목적). 그래도 성공 메시지로 마무리.
-            // 추가로 관리자 설정 가져와 금액 표시를 시도.
-            const fb = await getAdminRewardsFallback();
-            const useAmt = (fb?.refereeReward ?? 0);
-            if (useAmt > 0) setStatus(`추천 보상 +${useAmt} 이 적용되었습니다.`, 'ok');
-            else setStatus('추천 보상이 적용되었습니다.', 'ok');
-            return;
-          }
-        } catch {}
-
-        const data = await callProcessReferral(session, rc);
-        // 성공 처리
-        if (data?.success) {
-          // 금액은 함수 응답을 우선 사용, 없으면 admin_settings 폴백
-          let amt = (typeof data.refereeReward === 'number') ? data.refereeReward : undefined;
-          if (amt === undefined) {
-            const fb = await getAdminRewardsFallback();
-            amt = fb?.refereeReward;
-          }
-          if (typeof amt === 'number') {
-            setStatus(`추천 보상 +${amt} 이 적용되었습니다.`, 'ok');
-          } else {
-            setStatus('추천 보상이 적용되었습니다.', 'ok');
-          }
+          await callProcessReferral(session, rc);
+        } catch (e) {
+          // 호출 에러는 무시하고 폴링으로 확인
+          console.warn('process-referral failed (will poll):', e);
+        } finally {
           localStorage.removeItem('pendingReferralCode');
-        } else {
-          setStatus('추천 보상 처리 결과를 확인할 수 없습니다.', 'warn');
         }
-      } catch (e) {
-        setStatus(`추천 보상 적용에 실패했습니다. ${e?.message || ''}`.trim(), 'err');
+      }
+
+      // 2) 최대 6초 폴링 → 성공이면 초록 배너, 미확인 시 배너 숨김
+      const ok = await pollInviteeReward(6000, 500);
+      if (ok) {
+        setStatus('추천 보상이 적용되었습니다.', 'ok');
+      } else {
+        hideStatus(); // 불필요한 경고 배너 제거
       }
     }
 
@@ -201,7 +159,7 @@
     <h1 id="headline">가입 완료</h1>
     <div class="muted">Your registration has completed.</div>
 
-    <div id="status" class="status">처리중입니다...</div>
+    <div id="status" class="status" style="display:none"></div>
   </div>
 </body>
 </html>
