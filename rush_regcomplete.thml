@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>가입 완료</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji"; margin:24px; line-height:1.6; }
+    .card { max-width: 720px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; background: #fff; }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    .muted { color: #6b7280; font-size: 14px; }
+    .status { margin-top: 14px; padding: 12px; border-radius: 10px; background: #f8fafc; font-size: 14px; display:none; }
+    .ok  { color: #065f46; background: #ecfdf5; }
+    .warn{ color: #7c2d12; background: #fff7ed; }
+    .err { color: #991b1b; background: #fef2f2; }
+  </style>
+  <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.46.1';
+
+    // 프로젝트 설정(이미 사용 중인 값으로 교체하세요)
+    const SUPABASE_URL = 'https://snjmughdzdbwrvfworrh.supabase.co';
+    const SUPABASE_ANON_KEY = 'REPLACE_WITH_PUBLIC_ANON_KEY';
+    const FUNCTIONS_URL = 'https://sragibpyggwxbghyfuzq.functions.supabase.co';
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      functions: { url: FUNCTIONS_URL },
+    });
+
+    const $ = (s)=>document.querySelector(s);
+    const qs = new URLSearchParams(location.search);
+    const hs = new URLSearchParams(location.hash.replace(/^#/, ''));
+
+    function setStatus(text, cls='') {
+      const el = $('#status');
+      if (!el) return;
+      el.className = `status ${cls}`;
+      el.textContent = text;
+      el.style.display = 'block';
+    }
+    function hideStatus() {
+      const el = $('#status');
+      if (el) el.style.display = 'none';
+    }
+
+    function b64urlToStr(b64url) { try { let s=b64url.replace(/-/g,'+').replace(/_/g,'/'); const pad=s.length%4; if(pad) s+='='.repeat(4-pad); return atob(s);} catch { return ''; } }
+    function parseJwtPayload(token) { try { const p=token.split('.'); if(p.length<2) return null; const j=b64urlToStr(p[1]); return j?JSON.parse(j):null; } catch { return null; } }
+
+    function readReferralFromUrlOrLS() {
+      const fromUrl=qs.get('rc')||qs.get('ref')||qs.get('referralCode');
+      const fromHash=hs.get('rc')||hs.get('ref')||hs.get('referralCode');
+      const fromLS=localStorage.getItem('pendingReferralCode');
+      const rc=(fromUrl||fromHash||fromLS||'').trim();
+      if(rc) localStorage.setItem('pendingReferralCode', rc);
+      return rc;
+    }
+    function readReferralFromJWT() {
+      const at=hs.get('access_token'); if(!at) return '';
+      const payload=parseJwtPayload(at);
+      const rc=payload?.user_metadata?.referralCode||payload?.user_metadata?.referralcode||'';
+      return (rc||'').trim();
+    }
+
+    async function ensureSession() {
+      let { data:{ session } } = await supabase.auth.getSession();
+      if (session) return session;
+
+      const code = qs.get('code') || hs.get('code');
+      if (code) {
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        if (!error && data?.session) return data.session;
+      }
+
+      const at = hs.get('access_token'); const rt = hs.get('refresh_token');
+      if (at && rt) {
+        const { data, error } = await supabase.auth.setSession({ access_token: at, refresh_token: rt });
+        if (!error && data?.session) return data.session;
+      }
+
+      ({ data:{ session } } = await supabase.auth.getSession());
+      return session ?? null;
+    }
+
+    async function detectReferralCode() {
+      let rc = readReferralFromUrlOrLS(); if (rc) return rc;
+      rc = readReferralFromJWT(); if (rc) return rc;
+      try {
+        const { data: ud } = await supabase.auth.getUser();
+        const rcMeta=(ud?.user?.user_metadata?.referralCode||'').trim();
+        if (rcMeta) return rcMeta;
+      } catch {}
+      return '';
+    }
+
+    async function callProcessReferral(session, rc) {
+      const { data, error } = await supabase.functions.invoke('process-referral', {
+        body: { referralCode: rc },
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      });
+      if (error) throw new Error(error.message || 'invoke failed');
+      return data;
+    }
+
+    async function pollInviteeReward(maxWaitMs = 6000, intervalMs = 500) {
+      const start = Date.now();
+      while (Date.now() - start < maxWaitMs) {
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id;
+        if (!userId) break;
+
+        const { data, error } = await supabase
+          .from('rp_transactions')
+          .select('id')
+          .eq('user_id', userId)
+          .like('idempotency_key', 'referral:invitee:%')
+          .limit(1);
+        if (!error && data && data.length > 0) return true;
+
+        await new Promise(r => setTimeout(r, intervalMs));
+      }
+      return false;
+    }
+
+    async function run() {
+      $('#headline').textContent = '가입 인증이 완료되었습니다.';
+      setStatus('추천 보상을 확인 중입니다…', 'warn');
+
+      const session = await ensureSession();
+      if (!session) {
+        // 요청하신 문구 추가
+        setStatus('세션을 확인할 수 없습니다. 로그인 후 다시 시도해 주세요. (로그인 시 추천코드가 자동 적용됩니다)', 'err');
+        return;
+      }
+
+      const rc = await detectReferralCode();
+
+      // 1) 추천 코드가 있으면 한 번만 호출(서버가 멱등 보장)
+      if (rc) {
+        try {
+          await callProcessReferral(session, rc);
+        } catch (e) {
+          console.warn('process-referral failed (will poll):', e);
+        } finally {
+          localStorage.removeItem('pendingReferralCode');
+        }
+      }
+
+      // 2) 최대 6초 폴링 → 성공이면 초록 배너, 미확인 시 배너 숨김
+      const ok = await pollInviteeReward(6000, 500);
+      if (ok) {
+        setStatus('추천 보상이 적용되었습니다.', 'ok');
+      } else {
+        hideStatus();
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', run);
+  </script>
+</head>
+<body>
+  <div class="card">
+    <h1 id="headline">가입 완료</h1>
+    <div class="muted">Your registration has completed.</div>
+
+    <div id="status" class="status"></div>
+  </div>
+</body>
+</html>
