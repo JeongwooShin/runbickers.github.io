@@ -20,39 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 필요 시 Node 빌드. 정적 HTML만 배포한다면 이 블록은 제거 가능
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-        if: hashFiles('package-lock.json') != ''
-      - run: npm run build --if-present
-
-      # 배포 산출물 경로 결정:
-      # 1) dist가 있으면 dist
-      # 2) build가 있으면 build를 dist로 이동
-      # 3) 둘 다 없으면 public을 dist로 복사(정적 HTML 프로젝트용)
       - name: Prepare artifact
         run: |
-          set -e
-          if [ -d dist ]; then
-            echo "Using dist/"
-          elif [ -d build ]; then
-            mv build dist
-            echo "Using build/ -> dist/"
-          else
-            mkdir -p dist
-            if [ -d public ]; then
-              cp -R public/* dist/ || true
-              echo "Using public/ -> dist/"
-            else
-              # 마지막 폴백: 리포 루트 정적 파일 배포
-              shopt -s extglob
-              cp -R !(dist|node_modules|.git|.github) dist/ 2>/dev/null || true
-              echo "Using repo root -> dist/ (fallback)"
-            fi
-          fi
+          mkdir -p dist
+          # HTML 파일들과 supabase 폴더를 dist로 복사
+          cp *.html *.txt *.md dist/ 2>/dev/null || true
+          cp -R supabase dist/ 2>/dev/null || true
+          echo "Static files prepared for deployment"
+      
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
