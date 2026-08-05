@@ -3,7 +3,7 @@
 - [필수] 서비스 이용약관 동의
   - (보기) 링크: /terms-of-service.html
 - [필수] 개인정보처리방침 동의
-  - (보기) 링크: /privacy-policy.html
+  - (보기) 링크: /privacy_policy.html
 - [필수] 위치기반서비스 이용약관 동의
   - (보기) 링크: /location-terms.html
 - [선택] 앱 알림 수신 동의
