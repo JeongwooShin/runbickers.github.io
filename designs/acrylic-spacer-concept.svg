@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="680" viewBox="0 0 960 680">
+<rect width="960" height="680" fill="#fff"/>
+<g font-family="Arial,sans-serif">
+<text x="46" y="65" font-size="31" font-weight="700" fill="#213a51">Three-Layer Acrylic Holder — Exploded View</text>
+<text x="46" y="99" font-size="19" fill="#536a7a">Two transparent plates + one cut-out acrylic spacer (no CNC pocket milling)</text>
+<g transform="translate(0,25)">
+<rect x="150" y="144" width="460" height="256" rx="10" fill="#b8e5ee" fill-opacity=".64" stroke="#368aa6" stroke-width="6"/>
+<rect x="216" y="202" width="460" height="256" rx="15" fill="none" stroke="#bd8b4d" stroke-width="32"/>
+<rect x="282" y="260" width="460" height="256" rx="10" fill="#b8e5ee" fill-opacity=".49" stroke="#368aa6" stroke-width="6"/>
+<rect x="312" y="292" width="400" height="194" rx="5" fill="#efe9d9" fill-opacity=".7" stroke="#bda777" stroke-width="3"/>
+<path d="M355 334h310M355 365h290M355 396h305" stroke="#b2a186" stroke-width="5"/>
+<path d="M150 144L96 115" stroke="#172b3f" stroke-width="3"/><text x="40" y="107" font-size="25" fill="#172b3f">Front plate</text>
+<path d="M650 213l83-70" stroke="#172b3f" stroke-width="3"/><text x="744" y="143" font-size="25" fill="#172b3f">Spacer</text>
+<path d="M745 515l71 48" stroke="#172b3f" stroke-width="3"/><text x="804" y="589" font-size="25" fill="#172b3f">Back plate</text>
+</g>
+<text x="45" y="628" font-size="18" fill="#536a7a">Spacer: full-depth through-cut rectangular frame. Paper wallet sits inside the opening.</text>
+<text x="45" y="653" font-size="16" fill="#738797">Concept only · Not to scale · Final dimensions and bonding method to be confirmed.</text>
+</g></svg>
